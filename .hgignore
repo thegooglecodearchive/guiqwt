@@ -1,0 +1,21 @@
+\.pyc$
+\.so$
+\.settings$
+\.ropeproject$
+\.orig$
+\.chm$
+\.pyd$
+\.gui$
+^build/
+^dist/
+^tests/build
+^tests/dist
+Thumbs.db$
+MANIFEST$
+loadsavecanvas.gui$
+\.pot$
+~$
+syntax: glob
+tests/test*.tif
+tests/test*.png
+tests/contrast.png
