@@ -39,10 +39,8 @@ The `tools` module provides a collection of `plot tools` :
     * :py:class:`guiqwt.tools.ColormapTool`
     * :py:class:`guiqwt.tools.XCSPanelTool`
     * :py:class:`guiqwt.tools.YCSPanelTool`
-    * :py:class:`guiqwt.tools.RACSPanelTool`
     * :py:class:`guiqwt.tools.CrossSectionTool`
     * :py:class:`guiqwt.tools.AverageCrossSectionTool`
-    * :py:class:`guiqwt.tools.RACrossSectionTool`
     * :py:class:`guiqwt.tools.SaveAsTool`
     * :py:class:`guiqwt.tools.OpenFileTool`
     * :py:class:`guiqwt.tools.OpenImageTool`
@@ -52,6 +50,7 @@ The `tools` module provides a collection of `plot tools` :
     * :py:class:`guiqwt.tools.LoadItemsTool`
     * :py:class:`guiqwt.tools.AxisScaleTool`
     * :py:class:`guiqwt.tools.HelpTool`
+    * :py:class:`guiqwt.tools.ExportItemDataTool`
     * :py:class:`guiqwt.tools.DeleteItemTool`
 
 A `plot tool` is an object providing various features to a plotting widget 
@@ -181,9 +180,6 @@ Reference
 .. autoclass:: YCSPanelTool
    :members:
    :inherited-members:
-.. autoclass:: RACSPanelTool
-   :members:
-   :inherited-members:
 .. autoclass:: CrossSectionTool
    :members:
    :inherited-members:
@@ -215,6 +211,9 @@ Reference
    :members:
    :inherited-members:
 .. autoclass:: HelpTool
+   :members:
+   :inherited-members:
+.. autoclass:: ExportItemDataTool
    :members:
    :inherited-members:
 .. autoclass:: DeleteItemTool
@@ -253,20 +252,22 @@ from guiqwt.events import (setup_standard_tool_filter, ObjectHandler,
                            KeyEventMatch, QtDragHandler, ZoomRectHandler,
                            RectangularSelectionHandler, ClickHandler)
 from guiqwt.shapes import (Axes, RectangleShape, Marker, PolygonShape,
-                           EllipseShape, SegmentShape, PointShape)
+                           EllipseShape, SegmentShape, PointShape,
+                           SkewRectangleShape)
 from guiqwt.annotations import (AnnotatedRectangle, AnnotatedCircle,
                                 AnnotatedEllipse, AnnotatedSegment,
-                                AnnotatedPoint)
+                                AnnotatedPoint, AnnotatedSkewRectangle)
 from guiqwt.colormap import get_colormap_list, get_cmap, build_icon_from_cmap
 from guiqwt.interfaces import (IColormapImageItemType, IPlotManager,
                                IVoiImageItemType, IExportROIImageItemType,
-                               IStatsImageItemType)
+                               IStatsImageItemType, ICurveItemType)
 from guiqwt.signals import (SIG_VISIBILITY_CHANGED, SIG_CLICK_EVENT,
                             SIG_START_TRACKING, SIG_STOP_NOT_MOVING,
                             SIG_STOP_MOVING, SIG_MOVE, SIG_END_RECT,
                             SIG_VALIDATE_TOOL, SIG_ITEMS_CHANGED,
-                            SIG_ITEM_SELECTION_CHANGED, SIG_ITEM_REMOVED)
-from guiqwt.panels import ID_XCS, ID_YCS, ID_RACS, ID_ITEMLIST, ID_CONTRAST
+                            SIG_ITEM_SELECTION_CHANGED, SIG_ITEM_REMOVED,
+                            SIG_APPLIED_MASK_TOOL)
+from guiqwt.panels import ID_XCS, ID_YCS, ID_ITEMLIST, ID_CONTRAST
 
 
 class DefaultToolbarID:
@@ -793,6 +794,14 @@ class RectangularShapeTool(RectangularActionTool):
 class RectangleTool(RectangularShapeTool):
     TITLE = _("Rectangle")
     ICON = "rectangle.png"
+    
+class SkewRectangleTool(RectangularShapeTool):
+    TITLE = _("Skew rectangle")
+    ICON = "skew_rectangle.png"
+    def create_shape(self):
+        shape = SkewRectangleShape(1, 1, 2, 1, 2, 2, 1, 2)
+        self.set_shape_style(shape)
+        return shape, 0, 2
 
 class PointTool(RectangularShapeTool):
     TITLE = _("Point")
@@ -810,7 +819,7 @@ class SegmentTool(RectangularShapeTool):
     def create_shape(self):
         shape = SegmentShape(0, 0, 1, 1)
         self.set_shape_style(shape)
-        return shape, 0, 2
+        return shape, 0, 1
 
 class CircleTool(RectangularShapeTool):
     TITLE = _("Circle")
@@ -844,15 +853,27 @@ class PlaceAxesTool(RectangularShapeTool):
 
 class AnnotatedRectangleTool(RectangleTool):
     def create_shape(self):
-        return AnnotatedRectangle(0, 0, 1, 1), 0, 2
+        annotation = AnnotatedRectangle(0, 0, 1, 1)
+        self.set_shape_style(annotation)
+        return annotation, 0, 2
+
+class AnnotatedSkewRectangleTool(SkewRectangleTool):
+    def create_shape(self):
+        annotation = AnnotatedSkewRectangle(0, 0, 1, 0, 1, 1, 0, 1)
+        self.set_shape_style(annotation)
+        return annotation, 0, 2
 
 class AnnotatedCircleTool(CircleTool):
     def create_shape(self):
-        return AnnotatedCircle(0, 0, 1, 1), 0, 1
+        annotation = AnnotatedCircle(0, 0, 1, 1)
+        self.set_shape_style(annotation)
+        return annotation, 0, 1
 
 class AnnotatedEllipseTool(EllipseTool):
     def create_shape(self):
-        return AnnotatedEllipse(0, 0, 1, 1), 0, 1
+        annotation = AnnotatedEllipse(0, 0, 1, 1)
+        self.set_shape_style(annotation)
+        return annotation, 0, 1
         
     def handle_final_shape(self, shape):
         shape.shape.switch_to_ellipse()
@@ -860,11 +881,15 @@ class AnnotatedEllipseTool(EllipseTool):
 
 class AnnotatedPointTool(PointTool):
     def create_shape(self):
-        return AnnotatedPoint(0, 0), 0, 0
+        annotation = AnnotatedPoint(0, 0)
+        self.set_shape_style(annotation)
+        return annotation, 0, 0
 
 class AnnotatedSegmentTool(SegmentTool):
     def create_shape(self):
-        return AnnotatedSegment(0, 0, 1, 1), 0, 2
+        annotation = AnnotatedSegment(0, 0, 1, 1)
+        self.set_shape_style(annotation)
+        return annotation, 0, 1
 
 
 class ImageStatsRectangle(AnnotatedRectangle):
@@ -948,6 +973,7 @@ class CrossSectionTool(RectangularShapeTool):
     TITLE = _("Cross section")
     ICON = "csection.png"
     SHAPE_STYLE_KEY = "shape/cross_section"
+    SHAPE_TITLE = TITLE
     PANEL_IDS = (ID_XCS, ID_YCS)
     def create_shape(self):
         return AnnotatedPoint(0, 0), 0, 0
@@ -959,7 +985,8 @@ class CrossSectionTool(RectangularShapeTool):
     def setup_shape_appearance(self, shape):        
         self.set_shape_style(shape)
         param = shape.annotationparam
-        param.show_computations = False
+        param.title = self.SHAPE_TITLE
+#        param.show_computations = False
         param.update_annotation(shape)
         
     def register_shape(self, shape, final=False):
@@ -991,16 +1018,9 @@ class AverageCrossSectionTool(CrossSectionTool):
     TITLE = _("Average cross section")
     ICON = "csection_a.png"
     SHAPE_STYLE_KEY = "shape/average_cross_section"
+    SHAPE_TITLE = TITLE
     def create_shape(self):
         return AnnotatedRectangle(0, 0, 1, 1), 0, 2
-
-class RACrossSectionTool(CrossSectionTool):
-    TITLE = _("Radially-averaged cross section")
-    ICON = "csection_ra.png"
-    SHAPE_STYLE_KEY = "shape/average_cross_section"
-    PANEL_IDS = (ID_RACS, )
-    def create_shape(self):
-        return AnnotatedCircle(0, 0, 1, 1), 0, 1
 
 
 class RectZoomTool(InteractiveTool):
@@ -1336,10 +1356,6 @@ class XCSPanelTool(PanelTool):
 class YCSPanelTool(PanelTool):
     panel_name = _("Y-axis cross section")
     panel_id = ID_YCS
-
-class RACSPanelTool(PanelTool):
-    panel_name = _("Radially-averaged cross section")
-    panel_id = ID_RACS
 
 class ItemListPanelTool(PanelTool):
     panel_name = _("Item list")
@@ -1690,6 +1706,60 @@ class HelpTool(CommandTool):
   - right-click + mouse move: zoom"""))
 
 
+def export_curve_data(item):
+    """Export curve item data to text file"""
+    item_data = item.get_data()
+    if len(item_data) > 2:
+        x, y, dx, dy = item_data
+        array_list = [x, y]
+        if dx is not None:
+            array_list.append(dx)
+        if dy is not None:
+            array_list.append(dy)
+        data = np.array(array_list).T
+    else:
+        x, y = item_data
+        data = np.array([x, y]).T
+    plot = item.plot()
+    title = _("Export")
+    if item.curveparam.label:
+        title += (' (%s)' % item.curveparam.label)
+    fname = QFileDialog.getSaveFileName(plot, title, "",
+                                        _("Text file")+" (*.txt)")
+    if fname:
+        try:
+            np.savetxt(unicode(fname), data, delimiter=',')
+        except RuntimeError, error:
+            QMessageBox.critical(plot, _("Export"),
+                                 _("Unable to export item data.")+\
+                                 "<br><br>"+_("Error message:")+"<br>"+\
+                                 str(error))
+
+#TODO: ExportItemDataTool: add support for images
+class ExportItemDataTool(CommandTool):
+    def __init__(self, manager, toolbar_id=None):
+        super(ExportItemDataTool,self).__init__(manager, _("Export data..."),
+                                          "export.png", toolbar_id=toolbar_id)
+        
+    def get_supported_items(self, plot):
+        all_items = [item for item in plot.get_items(item_type=ICurveItemType)
+                     if not item.is_empty()]
+        if len(all_items) == 1:
+            return all_items
+        else:
+            return [item for item in plot.get_selected_items(ICurveItemType)
+                    if not item.is_empty()]
+
+    def update_status(self, plot):
+        self.action.setEnabled(len(self.get_supported_items(plot)) > 0)
+            
+    def activate_command(self, plot, checked):
+        """Activate tool"""
+        for item in self.get_supported_items(plot):
+            if ICurveItemType in item.types():
+                export_curve_data(item)
+
+
 class DeleteItemTool(CommandTool):
     def __init__(self, manager, toolbar_id=None):
         super(DeleteItemTool,self).__init__(manager, _("Remove"), "delete.png",
@@ -1906,6 +1976,7 @@ class ImageMaskTool(CommandTool):
                                                      inside=inside)
         self.masked_image.set_mask(mask)
         plot.replot()
+        self.emit(SIG_APPLIED_MASK_TOOL)
         
     def remove_all_shapes(self):
         message = _("Do you really want to remove all masking shapes?")
@@ -1913,10 +1984,14 @@ class ImageMaskTool(CommandTool):
         answer = QMessageBox.warning(plot, _("Remove all masking shapes"),
                                      message, QMessageBox.Yes | QMessageBox.No)
         if answer == QMessageBox.Yes:
-            plot.del_items([shape for shape, _inside
-                            in self._mask_shapes[plot]]) # remove shapes
-            self._mask_shapes[plot] = []
-            plot.replot()
+            self.remove_shapes()
+    
+    def remove_shapes(self):
+        plot = self.get_active_plot()
+        plot.del_items([shape for shape, _inside
+                        in self._mask_shapes[plot]]) # remove shapes
+        self._mask_shapes[plot] = []
+        plot.replot()
 
     def show_shapes(self, state):
         plot = self.get_active_plot()
@@ -1942,10 +2017,8 @@ class ImageMaskTool(CommandTool):
                      if isinstance(item, MaskedImageItem)]
             if items:
                 return items[-1]
-
+        
     def create_shapes_from_masked_areas(self):
-        if self.masked_image is None or self._mask_already_restored:
-            return
         plot = self.get_active_plot()
         self._mask_shapes[plot] = []
         masked_areas = self.masked_image.get_masked_areas()
@@ -1961,11 +2034,12 @@ class ImageMaskTool(CommandTool):
             plot.blockSignals(True)
             plot.add_item(shape)
             plot.blockSignals(False)
-        self._mask_already_restored = True
                 
     def set_masked_image(self, plot):
         self.masked_image = item = self.find_masked_image(plot)
-        self.create_shapes_from_masked_areas()
+        if self.masked_image is not None and not self._mask_already_restored:
+            self.create_shapes_from_masked_areas()
+            self._mask_already_restored = True
         enable = False if item is None else item.is_mask_visible()
         self.showmask_action.setChecked(enable)
 

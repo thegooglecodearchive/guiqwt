@@ -24,7 +24,7 @@ Reference
 .. autofunction:: array_to_dicomfile
 """
 
-import sys, os.path as osp, numpy as np, os, time
+import sys, os.path as osp, numpy as np, os, time, re
 
 # Local imports
 from guiqwt.config import _
@@ -126,6 +126,13 @@ try:
     IMAGE_LOAD_FILTERS += ('\n%s (*.dcm)' % _(u"DICOM images"))
 except ImportError:
     pass
+
+def _add_all_supported_files(filters):
+    extlist = re.findall(r'\*.[a-zA-Z0-9]*', filters)
+    allfiles = '%s (%s)\n' % (_("All supported files"), ' '.join(extlist))
+    return allfiles+filters    
+
+IMAGE_LOAD_FILTERS = _add_all_supported_files(IMAGE_LOAD_FILTERS)
 
 def imagefile_to_array(filename, to_grayscale=False):
     """
@@ -255,8 +262,6 @@ def array_to_dicomfile(arr, dcmstruct, filename, dtype=None, max_range=False):
     if max_range:
         assert dtype is not None
         arr = set_dynamic_range_from_dtype(arr, dtype)
-#    uid = make_uid(dicom.UID.root+"1")
-    rows, columns = arr.shape
     infos = np.iinfo(arr.dtype)
     dcmstruct.BitsAllocated = infos.bits
     dcmstruct.BitsStored = infos.bits
@@ -264,8 +269,11 @@ def array_to_dicomfile(arr, dcmstruct, filename, dtype=None, max_range=False):
     dcmstruct.PixelRepresentation = ('u', 'i').index(infos.kind)
     dcmstruct.Rows = arr.shape[0]
     dcmstruct.Columns = arr.shape[1]
-    dcmstruct.PhotometricInterpretation = 'MONOCHROME1'
-#    print "LENGTH=", len(arr.tostring())
+    dcmstruct.SmallestImagePixelValue = str(arr.min())
+    dcmstruct.LargestImagePixelValue = str(arr.max())
+    if not dcmstruct.PhotometricInterpretation.startswith('MONOCHROME'):
+        dcmstruct.PhotometricInterpretation = 'MONOCHROME1'
     dcmstruct.PixelData = arr.tostring()
+    dcmstruct[0x7fe00010].VR = 'OB'
     dcmstruct.save_as(filename)
     
