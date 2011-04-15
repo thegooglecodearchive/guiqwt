@@ -125,7 +125,7 @@ from guiqwt.tools import (SelectTool, RectZoomTool, ColormapTool, HelpTool,
                           AspectRatioTool, ContrastPanelTool, XCSPanelTool,
                           YCSPanelTool, SnapshotTool, DummySeparatorTool,
                           CrossSectionTool, AverageCrossSectionTool,
-                          ImageStatsTool)
+                          ImageStatsTool, ExportItemDataTool)
 from guiqwt.interfaces import IPlotManager
 from guiqwt.signals import (SIG_ITEMS_CHANGED, SIG_ACTIVE_ITEM_CHANGED,
                             SIG_VISIBILITY_CHANGED, SIG_PLOT_AXIS_CHANGED)
@@ -275,6 +275,12 @@ class PlotManager(object):
         if len(self.tools) == 1:
             self.default_tool = tool
         return tool
+        
+    def get_tool(self, ToolKlass):
+        """Return tool instance from its class"""
+        for tool in self.tools:
+            if isinstance(tool, ToolKlass):
+                return tool
         
     def add_separator_tool(self, toolbar_id=None):
         """
@@ -488,6 +494,7 @@ class PlotManager(object):
         self.set_default_tool(t)
         self.add_tool(RectZoomTool)
         self.add_tool(BasePlotMenuTool, "item")
+        self.add_tool(ExportItemDataTool)
         self.add_tool(DeleteItemTool)
         self.add_separator_tool()
         self.add_tool(BasePlotMenuTool, "grid")

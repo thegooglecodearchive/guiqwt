@@ -13,6 +13,7 @@ The `annotations` module provides annotated shapes:
     * :py:class:`guiqwt.annotations.AnnotatedPoint`
     * :py:class:`guiqwt.annotations.AnnotatedSegment`
     * :py:class:`guiqwt.annotations.AnnotatedRectangle`
+    * :py:class:`guiqwt.annotations.AnnotatedSkewRectangle`
     * :py:class:`guiqwt.annotations.AnnotatedEllipse`
     * :py:class:`guiqwt.annotations.AnnotatedCircle`
 
@@ -54,6 +55,9 @@ Reference
 .. autoclass:: AnnotatedRectangle
    :members:
    :inherited-members:
+.. autoclass:: AnnotatedSkewRectangle
+   :members:
+   :inherited-members:
 .. autoclass:: AnnotatedEllipse
    :members:
    :inherited-members:
@@ -71,10 +75,12 @@ from guidata.utils import update_dataset
 from guiqwt.config import CONF, _
 from guiqwt.styles import LabelParam, AnnotationParam
 from guiqwt.shapes import (AbstractShape, RectangleShape, EllipseShape,
-                           SegmentShape, PointShape)
+                           SegmentShape, PointShape, VerticalCursor,
+                           HorizontalCursor, SkewRectangleShape)
 from guiqwt.label import DataInfoLabel
 from guiqwt.interfaces import IShapeItemType, ISerializableType
-from guiqwt.signals import SIG_ANNOTATION_CHANGED, SIG_ITEM_MOVED
+from guiqwt.signals import (SIG_ANNOTATION_CHANGED, SIG_ITEM_MOVED,
+                            SIG_CURSOR_MOVED)
 
 
 class AnnotatedShape(AbstractShape):
@@ -87,8 +93,8 @@ class AnnotatedShape(AbstractShape):
     def __init__(self, annotationparam=None):
         AbstractShape.__init__(self)
         assert self.LABEL_ANCHOR is not None
-        self.shape = self.get_shape()
-        self.label = self.get_label()
+        self.shape = self.create_shape()
+        self.label = self.create_label()
         self.area_computations_visible = True
         if annotationparam is None:
             self.annotationparam = AnnotationParam(_("Annotation"),
@@ -121,13 +127,12 @@ class AnnotatedShape(AbstractShape):
             self.label.draw(painter, xMap, yMap, canvasRect)
         
     #----Public API-------------------------------------------------------------
-    def get_shape(self):
+    def create_shape(self):
         """Return the shape object associated to this annotated shape object"""
         shape = self.SHAPE_CLASS(0, 0, 1, 1)
-        shape.set_style("plot", "shape/drag")
         return shape
         
-    def get_label(self):
+    def create_label(self):
         """Return the label object associated to this annotated shape object"""
         label_param = LabelParam(_("Label"), icon='label.png')
         label_param.read_config(CONF, "plot", "shape/label")
@@ -271,10 +276,9 @@ class AnnotatedPoint(AnnotatedShape):
         return self.shape.get_pos()
         
     #----AnnotatedShape API-----------------------------------------------------
-    def get_shape(self):
+    def create_shape(self):
         """Return the shape object associated to this annotated shape object"""
         shape = self.SHAPE_CLASS(0, 0)
-        shape.set_style("plot", "shape/drag")
         return shape
 
     def set_label_position(self):
@@ -323,9 +327,8 @@ class AnnotatedSegment(AnnotatedShape):
     
     def set_label_position(self):
         """Set label position, for instance based on shape position"""
-        x0, y0 = self.shape.points[0]
-        x2, y2 = self.shape.points[2]
-        self.label.set_position(*compute_center(x0, y0, x2, y2))
+        x1, y1, x2, y2 = self.get_rect()
+        self.label.set_position(*compute_center(x1, y1, x2, y2))
         
     #----AnnotatedShape API-----------------------------------------------------
     def get_infos(self):
@@ -390,6 +393,78 @@ class AnnotatedRectangle(AnnotatedShape):
                             ])
 
 
+class AnnotatedSkewRectangle(AnnotatedRectangle):
+    """
+    Construct an annotated skewed rectangle between coordinates (x0, y0),
+    (x1, y1), (x2, y2) and (x3, y3) with properties set with *annotationparam* 
+    (see :py:class:`guiqwt.styles.AnnotationParam`)
+    """
+    SHAPE_CLASS = SkewRectangleShape
+    LABEL_ANCHOR = "C"
+    def __init__(self, x0=0, y0=0, x1=0, y1=0, x2=0, y2=0, x3=0, y3=0,
+                 annotationparam=None):
+        AnnotatedShape.__init__(self, annotationparam)
+        self.set_rect(x0, y0, x1, y1, x2, y2, x3, y3)
+        
+    #----Public API-------------------------------------------------------------
+    def get_angle(self):
+        """Return X-diameter angle with horizontal direction"""
+        xcoords = self.get_transformed_coords(0, 1)
+        _x, yr1 = self.apply_transform_matrix(1., 1.)
+        _x, yr2 = self.apply_transform_matrix(1., 2.)
+        return (compute_angle(reverse=yr1 > yr2, *xcoords)+90)%180-90
+        
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def create_shape(self):
+        """Return the shape object associated to this annotated shape object"""
+        shape = self.SHAPE_CLASS(0, 0, 0, 0, 0, 0, 0, 0)
+        return shape
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def set_label_position(self):
+        """Set label position, for instance based on shape position"""
+        self.label.set_position(*self.get_center())
+        
+    #----RectangleShape API-----------------------------------------------------
+    def set_rect(self, x0, y0, x1, y1, x2, y2, x3, y3):
+        u"""
+        Set the rectangle corners coordinates:
+            (x0, y0): top-left corner
+            (x1, y1): top-right corner
+            (x2, y2): bottom-right corner
+            (x3, y3): bottom-left corner
+            
+            x: additionnal points
+            
+            (x0, y0)------>(x1, y1)
+                ↑             |
+                |             |
+                x             x
+                |             |
+                |             ↓
+            (x3, y3)<------(x2, y2)
+        """
+        self.shape.set_rect(x0, y0, x1, y1, x2, y2, x3, y3)
+        self.set_label_position()
+        
+    def get_size(self):
+        """Return rectangle size: (width, height)"""
+        dx = compute_distance(*self.get_transformed_coords(0, 1))
+        dy = compute_distance(*self.get_transformed_coords(0, 3))
+        return dx, dy
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def get_infos(self):
+        """Return formatted string with informations on current shape"""
+        f = self.annotationparam.format
+        return "<br>".join([
+                    _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
+                    _("Size:") + (" "+f+u" x "+f) % self.get_size(),
+                    _(u"Angle:") + u" %.1f°" % self.get_angle(),
+                            ])
+    
+
 class AnnotatedEllipse(AnnotatedShape):
     """
     Construct an annotated ellipse with X-axis diameter between 
@@ -451,10 +526,9 @@ class AnnotatedEllipse(AnnotatedShape):
         return (compute_angle(reverse=yr1 > yr2, *xcoords)+90)%180-90
         
     #----AnnotatedShape API-----------------------------------------------------
-    def get_shape(self):
+    def create_shape(self):
         """Return the shape object associated to this annotated shape object"""
         shape = self.SHAPE_CLASS(0, 0, 1, 1, ratio=self.ratio)
-        shape.set_style("plot", "shape/drag")
         return shape
         
     def set_label_position(self):
@@ -469,7 +543,7 @@ class AnnotatedEllipse(AnnotatedShape):
         return "<br>".join([
                     _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
                     _("Size:") + (" "+f+u" x "+f) % self.get_size(),
-                    _("Angle:") + " %.1f°" % self.get_angle(),
+                    _(u"Angle:") + u" %.1f°" % self.get_angle(),
                             ])
         
 
@@ -498,3 +572,103 @@ class AnnotatedCircle(AnnotatedEllipse):
     #----AnnotatedEllipse API---------------------------------------------------
     def set_rect(self, x0, y0, x1, y1):
         self.shape.set_rect(x0, y0, x1, y1)
+        
+
+
+class AnnotatedCursor(AnnotatedShape):
+    """
+    Construct an annotated vertical cursor in x=pos
+    with properties set with *annotationparam* 
+    (see :py:class:`guiqwt.styles.AnnotationParam`)
+    """
+    LABEL_ANCHOR = "BL"
+
+    def __init__(self, pos=0, annotationparam=None, moveable=True):
+        self._can_move = moveable
+        self._can_resize = moveable
+        
+        AnnotatedShape.__init__(self, annotationparam)
+        self.set_pos(pos)
+        
+    #----IBasePlotItem API------------------------------------------------------
+    def select(self):
+        """Select item"""
+        AnnotatedShape.select(self)
+        param = self.label.labelparam
+        param.color = self.shape.shapeparam.sel_line.color
+        param.update_label(self.label)
+        
+    def unselect(self):
+        """Unselect item"""
+        AnnotatedShape.unselect(self)
+        param = self.label.labelparam
+        param.color = self.shape.shapeparam.line.color
+        param.update_label(self.label)
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def set_pos(self, pos):
+        self.shape.set_pos(pos, dosignal=False)
+
+    def get_pos(self):
+        return self.shape.get_pos()
+        
+    def set_style(self, section, option):
+        pass
+           
+    def hit_test(self, pos):
+        return self.shape.hit_test(pos)
+        
+    def move_point_to(self, handle, pos, ctrl=None):
+        super(AnnotatedCursor, self).move_point_to(handle, pos, ctrl)
+        if self.plot():
+            self.plot().emit(SIG_CURSOR_MOVED, self, self.get_pos())
+        
+    def draw(self, painter, xMap, yMap, canvasRect):
+        self.set_label_position()
+        super(AnnotatedCursor, self).draw(painter, xMap, yMap, canvasRect)
+        
+    def create_label(self):
+        """Return the label object associated to this annotated shape object"""
+        label_param = LabelParam(_("Label"), icon='label.png')
+        label_param.read_config(CONF, "plot", "shape/cursor_label")
+        label_param.anchor = self.LABEL_ANCHOR
+        label_param.color = self.shape.shapeparam.line.color
+        return DataInfoLabel(label_param, [self])
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def create_shape(self):
+        """Return the shape object associated to this annotated shape object"""
+        return self.SHAPE_CLASS(0, self.can_move())
+        
+    def get_infos(self):
+        """Return dictionary with measured data on shape"""
+        f = self.annotationparam.format
+        return f % self.get_pos()
+        
+        
+class AnnotatedVCursor(AnnotatedCursor):
+    SHAPE_CLASS = VerticalCursor
+    def move_local_point_to(self, handle, pos, ctrl=None):
+        val = self.plot().invTransform(self.xAxis(), pos.x())
+        self.move_point_to(handle, (val, 0))
+        
+    def set_label_position(self):
+        """Set label position, for instance based on shape position"""
+        plot = self.plot()
+        y = plot.invTransform(self.yAxis(),
+                              plot.canvas().contentsRect().bottomLeft().y())
+        self.label.set_position(self.shape.pos, y)
+        
+
+class AnnotatedHCursor(AnnotatedCursor):
+    SHAPE_CLASS = HorizontalCursor
+    def move_local_point_to(self, handle, pos, ctrl=None):
+        val = self.plot().invTransform(self.yAxis(), pos.y())
+        self.move_point_to(handle, (val, 0))
+        
+    def set_label_position(self):
+        """Set label position, for instance based on shape position"""
+        plot = self.plot()
+        x = plot.invTransform(self.xAxis(),
+                              plot.canvas().contentsRect().bottomLeft().x())
+        self.label.set_position(x, self.shape.pos)
