@@ -51,6 +51,7 @@ The `tools` module provides a collection of `plot tools` :
     * :py:class:`guiqwt.tools.AxisScaleTool`
     * :py:class:`guiqwt.tools.HelpTool`
     * :py:class:`guiqwt.tools.ExportItemDataTool`
+    * :py:class:`guiqwt.tools.ItemCenterTool`
     * :py:class:`guiqwt.tools.DeleteItemTool`
 
 A `plot tool` is an object providing various features to a plotting widget 
@@ -214,6 +215,9 @@ Reference
    :members:
    :inherited-members:
 .. autoclass:: ExportItemDataTool
+   :members:
+   :inherited-members:
+.. autoclass:: ItemCenterTool
    :members:
    :inherited-members:
 .. autoclass:: DeleteItemTool
@@ -934,6 +938,7 @@ class ImageStatsTool(RectangularShapeTool):
         
     def setup_shape(self, shape):
         self.setup_shape_appearance(shape)
+        super(ImageStatsTool, self).setup_shape(shape)
         self.register_shape(shape, final=False)
         
     def setup_shape_appearance(self, shape):        
@@ -952,17 +957,12 @@ class ImageStatsTool(RectangularShapeTool):
             plot.set_active_item(shape)
             shape.set_image_item(self._last_item)
 
-#    def activate(self):
-#        """Activate tool"""
-#        super(ImageStatsTool, self).activate()
-#    
     def handle_final_shape(self, shape):
         super(ImageStatsTool, self).handle_final_shape(shape)
-        self.setup_shape_appearance(shape)
         self.register_shape(shape, final=True)
         
     def get_associated_item(self, plot):
-        items = plot.get_selected_items(IStatsImageItemType)
+        items = plot.get_selected_items(item_type=IStatsImageItemType)
         if len(items) == 1:
             self._last_item = items[0]
         return self._last_item
@@ -984,6 +984,7 @@ class CrossSectionTool(RectangularShapeTool):
         
     def setup_shape(self, shape):
         self.setup_shape_appearance(shape)
+        super(CrossSectionTool, self).setup_shape(shape)
         self.register_shape(shape, final=False)
         
     def setup_shape_appearance(self, shape):        
@@ -1015,7 +1016,6 @@ class CrossSectionTool(RectangularShapeTool):
     
     def handle_final_shape(self, shape):
         super(CrossSectionTool, self).handle_final_shape(shape)
-        self.setup_shape_appearance(shape)
         self.register_shape(shape, final=True)
 
 class AverageCrossSectionTool(CrossSectionTool):
@@ -1113,12 +1113,22 @@ class VCursorTool(BaseCursorTool):
         from guiqwt.shapes import VerticalCursor
         return VerticalCursor(0)
 
+class AnnotatedVCursorTool(VCursorTool):
+    def create_shape(self):
+        from guiqwt.annotations import AnnotatedVCursor
+        return AnnotatedVCursor(0)
+
 class HCursorTool(BaseCursorTool):
     TITLE = _("Horizontal cursor")
     ICON = "hcursor.png"
     def create_shape(self):
         from guiqwt.shapes import HorizontalCursor
         return HorizontalCursor(0)
+
+class AnnotatedHCursorTool(HCursorTool):
+    def create_shape(self):
+        from guiqwt.annotations import AnnotatedHCursor
+        return AnnotatedHCursor(0)
 
 
 class DummySeparatorTool(GuiTool):
@@ -1754,7 +1764,11 @@ def export_curve_data(item):
                                  "<br><br>"+_("Error message:")+"<br>"+\
                                  str(error))
 
-#TODO: ExportItemDataTool: add support for images
+def export_image_data(item):
+    """Export image item data to file"""
+    from guiqwt.io import exec_image_save_dialog
+    exec_image_save_dialog(item.data, item.plot())
+
 class ExportItemDataTool(CommandTool):
     def __init__(self, manager, toolbar_id=None):
         super(ExportItemDataTool,self).__init__(manager, _("Export data..."),
@@ -1763,11 +1777,14 @@ class ExportItemDataTool(CommandTool):
     def get_supported_items(self, plot):
         all_items = [item for item in plot.get_items(item_type=ICurveItemType)
                      if not item.is_empty()]
+        from guiqwt.image import ImageItem
+        all_items += [item for item in plot.get_items()
+                      if isinstance(item, ImageItem) and not item.is_empty()]
         if len(all_items) == 1:
             return all_items
         else:
-            return [item for item in plot.get_selected_items(ICurveItemType)
-                    if not item.is_empty()]
+            return [item for item in all_items
+                    if item in plot.get_selected_items()]
 
     def update_status(self, plot):
         self.action.setEnabled(len(self.get_supported_items(plot)) > 0)
@@ -1777,6 +1794,37 @@ class ExportItemDataTool(CommandTool):
         for item in self.get_supported_items(plot):
             if ICurveItemType in item.types():
                 export_curve_data(item)
+            else:
+                export_image_data(item)
+
+
+class ItemCenterTool(CommandTool):
+    def __init__(self, manager, toolbar_id=None):
+        super(ItemCenterTool,self).__init__(manager, _("Center items"),
+                                            "center.png", toolbar_id=toolbar_id)
+        
+    def get_supported_items(self, plot):
+        from guiqwt.shapes import (RectangleShape, EllipseShape,
+                                   ObliqueRectangleShape)
+        from guiqwt.annotations import (AnnotatedRectangle, AnnotatedEllipse,
+                                        AnnotatedObliqueRectangle)
+        item_types = (RectangleShape, EllipseShape, ObliqueRectangleShape,
+                      AnnotatedRectangle, AnnotatedEllipse,
+                      AnnotatedObliqueRectangle)
+        return [item for item in plot.get_selected_items(z_sorted=True)
+                if isinstance(item, item_types)]
+
+    def update_status(self, plot):
+        self.action.setEnabled(len(self.get_supported_items(plot)) > 1)
+            
+    def activate_command(self, plot, checked):
+        """Activate tool"""
+        items = self.get_supported_items(plot)
+        xc0, yc0 = items.pop(-1).get_center()
+        for item in items:
+            xc, yc = item.get_center()
+            item.move_with_selection(xc0-xc, yc0-yc)
+        plot.replot()
 
 
 class DeleteItemTool(CommandTool):
@@ -1877,7 +1925,8 @@ class ColormapTool(CommandTool):
         pass
 
     def get_selected_images(self, plot):
-        items = [it for it in plot.get_selected_items(IColormapImageItemType)]
+        items = [it for it in
+                 plot.get_selected_items(item_type=IColormapImageItemType)]
         if not items:
             active_image = plot.get_last_active_item(IColormapImageItemType)
             if active_image:

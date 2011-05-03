@@ -67,7 +67,6 @@ Reference
 """
 
 import numpy as np
-from math import fabs
 
 from guidata.utils import update_dataset
 
@@ -81,6 +80,8 @@ from guiqwt.label import DataInfoLabel
 from guiqwt.interfaces import IShapeItemType, ISerializableType
 from guiqwt.signals import (SIG_ANNOTATION_CHANGED, SIG_ITEM_MOVED,
                             SIG_CURSOR_MOVED)
+from guiqwt.geometry import (compute_center, compute_rect_size,
+                             compute_distance, compute_angle)
 
 
 class AnnotatedShape(AbstractShape):
@@ -172,6 +173,60 @@ class AnnotatedShape(AbstractShape):
                     text += "<br>"
                 text += infos
         return text
+
+    def x_to_str(self, x, k):
+        """
+        Convert x (float) to a string (with associated unit and uncertainty)
+        k: uncertainty factor
+        Examples:
+            coordinate: k == 1
+            distance:   k == 2 (uncertainty is doubled)
+        """
+        param = self.annotationparam
+        if self.plot() is None:
+            return ''
+        else:
+            xunit = self.plot().get_axis_unit(self.xAxis())
+            fmt = param.format
+            if param.uncertainty:
+                fmt += u" ± "+(fmt % (.5*x*k*param.uncertainty))
+            return (fmt+" "+xunit) % x
+
+    def y_to_str(self, y, k):
+        """
+        Convert y (float) to a string (with associated unit and uncertainty)
+        k: uncertainty factor
+        Examples:
+            coordinate: k == 1
+            distance:   k == 2 (uncertainty is doubled)
+        """
+        param = self.annotationparam
+        if self.plot() is None:
+            return ''
+        else:
+            yunit = self.plot().get_axis_unit(self.yAxis())
+            fmt = param.format
+            if param.uncertainty:
+                fmt += u" ± "+(fmt % (.5*y*k*param.uncertainty))
+            return (fmt+" "+yunit) % y
+                
+    def get_center(self):
+        """Return shape center coordinates: (xc, yc)"""
+        raise NotImplementedError
+        
+    def get_center_str(self):
+        """Return center coordinates as a string (with units)"""
+        xc, yc = self.get_center()
+        return "( %s ; %s )" % (self.x_to_str(xc, 1), self.y_to_str(yc, 1))
+        
+    def get_size(self):
+        """Return shape size: (width, height)"""
+        raise NotImplementedError
+        
+    def get_size_str(self):
+        """Return size as a string (with units)"""
+        xs, ys = self.get_size()
+        return "%s x %s" % (self.x_to_str(xs, 2), self.y_to_str(ys, 2))
         
     def get_infos(self):
         """Return formatted string with informations on current shape"""
@@ -214,6 +269,15 @@ class AnnotatedShape(AbstractShape):
         if self.plot():
             self.plot().emit(SIG_ITEM_MOVED, self, *(old_pt+new_pt))
             self.plot().emit(SIG_ANNOTATION_CHANGED, self)
+            
+    def move_with_selection(self, delta_x, delta_y):
+        """
+        Translate the shape together with other selected items
+        delta_x, delta_y: translation in plot coordinates
+        """
+        self.shape.move_with_selection(delta_x, delta_y)
+        self.label.move_with_selection(delta_x, delta_y)
+        self.plot().emit(SIG_ANNOTATION_CHANGED, self)
 
     def select(self):
         """Select item"""
@@ -238,20 +302,6 @@ class AnnotatedShape(AbstractShape):
                        visible_only=True)
         self.annotationparam.update_annotation(self)
     
-
-def compute_center(x1, y1, x2, y2):
-    return .5*(x1+x2), .5*(y1+y2)
-    
-def compute_rect_size(x1, y1, x2, y2):
-    return x2-x1, fabs(y2-y1)
-
-def compute_distance(x1, y1, x2, y2):
-    return np.sqrt((x2-x1)**2+(y2-y1)**2)
-    
-def compute_angle(x1, y1, x2, y2, reverse=False):
-    sign = -1 if reverse else 1
-    return np.arctan(-sign*(y2-y1)/(x2-x1))*180/np.pi
-
 
 class AnnotatedPoint(AnnotatedShape):
     """
@@ -289,9 +339,8 @@ class AnnotatedPoint(AnnotatedShape):
     #----AnnotatedShape API-----------------------------------------------------
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
         xt, yt = self.apply_transform_matrix(*self.shape.points[0])
-        return ("( "+f+u" ; "+f+" )") % (xt, yt)
+        return "( %s ; %s )" % (self.x_to_str(xt, 1), self.y_to_str(yt, 1))
         
 
 class AnnotatedSegment(AnnotatedShape):
@@ -334,8 +383,7 @@ class AnnotatedSegment(AnnotatedShape):
     #----AnnotatedShape API-----------------------------------------------------
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
-        return _("Distance:") + (" "+f) % self.get_length()
+        return _("Distance:") + " " + self.x_to_str(self.get_length(), 2)
 
 
 class AnnotatedRectangle(AnnotatedShape):
@@ -365,14 +413,6 @@ class AnnotatedRectangle(AnnotatedShape):
         """
         return self.shape.get_rect()
         
-    def get_center(self):
-        """Return center coordinates: (xc, yc)"""
-        return compute_center(*self.get_transformed_coords(0, 2))
-        
-    def get_size(self):
-        """Return rectangle size: (width, height)"""
-        return compute_rect_size(*self.get_transformed_coords(0, 2))
-        
     #----AnnotatedShape API-----------------------------------------------------
     def set_label_position(self):
         """Set label position, for instance based on shape position"""
@@ -384,13 +424,19 @@ class AnnotatedRectangle(AnnotatedShape):
         tdict = self.get_string_dict()
         return u"%(center_n)s ( %(center)s )<br>%(size_n)s %(size)s" % tdict
         
-    #----AnnotatedShape API-----------------------------------------------------
+    def get_center(self):
+        """Return center coordinates: (xc, yc)"""
+        return compute_center(*self.get_transformed_coords(0, 2))
+        
+    def get_size(self):
+        """Return rectangle size: (width, height)"""
+        return compute_rect_size(*self.get_transformed_coords(0, 2))
+        
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
         return "<br>".join([
-                    _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
-                    _("Size:") + (" "+f+u" x "+f) % self.get_size(),
+                            _("Center:") + " " + self.get_center_str(),
+                            _("Size:") + " " + self.get_size_str(),
                             ])
 
 
@@ -461,11 +507,10 @@ class AnnotatedObliqueRectangle(AnnotatedRectangle):
     #----AnnotatedShape API-----------------------------------------------------
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
         return "<br>".join([
-                    _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
-                    _("Size:") + (" "+f+u" x "+f) % self.get_size(),
-                    _(u"Angle:") + u" %.1f°" % self.get_angle(),
+                            _("Center:") + " " + self.get_center_str(),
+                            _("Size:") + " " + self.get_size_str(),
+                            _(u"Angle:") + u" %.1f°" % self.get_angle(),
                             ])
     
 
@@ -508,20 +553,6 @@ class AnnotatedEllipse(AnnotatedShape):
     def set_rect(self, x0, y0, x1, y1):
         raise NotImplementedError
         
-    def get_center(self):
-        """Return center coordinates: (xc, yc)"""
-        return compute_center(*self.get_transformed_coords(0, 1))
-        
-    def get_size(self):
-        """Return ellipse size: (width, height)"""
-        xcoords = self.get_transformed_coords(0, 1)
-        ycoords = self.get_transformed_coords(2, 3)
-        dx = compute_distance(*xcoords)
-        dy = compute_distance(*ycoords)
-        if fabs(self.get_angle()) > 45:
-            dx, dy = dy, dx
-        return dx, dy
-        
     def get_angle(self):
         """Return X-diameter angle with horizontal direction"""
         xcoords = self.get_transformed_coords(0, 1)
@@ -540,14 +571,26 @@ class AnnotatedEllipse(AnnotatedShape):
         x_label, y_label = self.shape.points.mean(axis=0)
         self.label.set_position(x_label, y_label)
         
-    #----AnnotatedShape API-----------------------------------------------------
+    def get_center(self):
+        """Return center coordinates: (xc, yc)"""
+        return compute_center(*self.get_transformed_coords(0, 1))
+        
+    def get_size(self):
+        """Return ellipse size: (width, height)"""
+        xcoords = self.get_transformed_coords(0, 1)
+        ycoords = self.get_transformed_coords(2, 3)
+        dx = compute_distance(*xcoords)
+        dy = compute_distance(*ycoords)
+        if np.fabs(self.get_angle()) > 45:
+            dx, dy = dy, dx
+        return dx, dy
+        
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
         return "<br>".join([
-                    _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
-                    _("Size:") + (" "+f+u" x "+f) % self.get_size(),
-                    _(u"Angle:") + u" %.1f°" % self.get_angle(),
+                            _("Center:") + " " + self.get_center_str(),
+                            _("Size:") + " " + self.get_size_str(),
+                            _(u"Angle:") + u" %.1f°" % self.get_angle(),
                             ])
         
 
@@ -567,10 +610,9 @@ class AnnotatedCircle(AnnotatedEllipse):
     #----AnnotatedShape API-------------------------------------------------
     def get_infos(self):
         """Return formatted string with informations on current shape"""
-        f = self.annotationparam.format
         return "<br>".join([
-                    _("Center:") + (" ( "+f+u" ; "+f+" )") % self.get_center(),
-                    _("Diameter:") + (" "+f) % self.get_diameter(),
+                    _("Center:")+" "+self.get_center_str(),
+                    _("Diameter:")+" "+self.x_to_str(self.get_diameter(), 2),
                             ])
 
     #----AnnotatedEllipse API---------------------------------------------------
@@ -646,8 +688,7 @@ class AnnotatedCursor(AnnotatedShape):
         
     def get_infos(self):
         """Return dictionary with measured data on shape"""
-        f = self.annotationparam.format
-        return f % self.get_pos()
+        raise NotImplementedError
         
         
 class AnnotatedVCursor(AnnotatedCursor):
@@ -663,6 +704,11 @@ class AnnotatedVCursor(AnnotatedCursor):
                               plot.canvas().contentsRect().bottomLeft().y())
         self.label.set_position(self.shape.pos, y)
         
+    #----AnnotatedShape API-----------------------------------------------------
+    def get_infos(self):
+        """Return dictionary with measured data on shape"""
+        return self.x_to_str(self.get_pos(), 1)
+        
 
 class AnnotatedHCursor(AnnotatedCursor):
     SHAPE_CLASS = HorizontalCursor
@@ -676,3 +722,8 @@ class AnnotatedHCursor(AnnotatedCursor):
         x = plot.invTransform(self.xAxis(),
                               plot.canvas().contentsRect().bottomLeft().x())
         self.label.set_position(x, self.shape.pos)
+        
+    #----AnnotatedShape API-----------------------------------------------------
+    def get_infos(self):
+        """Return dictionary with measured data on shape"""
+        return self.y_to_str(self.get_pos(), 1)
