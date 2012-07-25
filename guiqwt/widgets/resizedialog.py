@@ -1,9 +1,25 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright © 2009-2010 CEA
+# Copyright © 2009-2012 CEA
 # Pierre Raybaut
 # Licensed under the terms of the CECILL License
 # (see guiqwt/__init__.py for details)
+
+"""
+resizedialog
+------------
+
+The `resizedialog` module provides a dialog box providing essential GUI 
+for entering parameters needed to resize an image:
+:py:class:`guiqwt.widgets.resizedialog.ResizeDialog`.
+
+Reference
+~~~~~~~~~
+
+.. autoclass:: ResizeDialog
+   :members:
+   :inherited-members:
+"""
 
 from __future__ import division
 
@@ -54,7 +70,7 @@ class ResizeDialog(QDialog):
         h_valid.setBottom(1)
         h_edit.setValidator(h_valid)
         
-        self.no_zoom_box = zbox = QCheckBox(_("Keep the original size"), self)
+        zbox = QCheckBox(_("Original size"), self)
 
         formlayout.addRow(_("Width (pixels)"), w_edit)
         formlayout.addRow(_("Height (pixels)"), h_edit)
